@@ -190,12 +190,18 @@ class Linear(Node):
         Node.__init__(self, [x, w, b])
 
     def forward(self):
-        # TODO: implement
-        pass
+        self.cache[0] = self.inbound_nodes[0].value
+        self.cache[1] = self.inbound_nodes[1].value
+        self.cache[2] = self.inbound_nodes[2].value
+        self.value = np.dot(self.cache[0], self.cache[1]) + self.cache[2]
 
     def backward(self):
-        # TODO: implement
         self.gradients = {n: np.zeros_like(n.value) for n in self.inbound_nodes}
+        for n in self.outbound_nodes:
+            grad = n.gradients[self]
+            self.gradients[self.inbound_nodes[0]] += np.dot(grad, self.cache[1].T)
+            self.gradients[self.inbound_nodes[1]] += np.dot(self.cache[0].T, grad)
+            self.gradients[self.inbound_nodes[2]] += np.sum(grad, axis=0, keepdims=False)
 
 
 class Sigmoid(Node):
@@ -203,16 +209,17 @@ class Sigmoid(Node):
         Node.__init__(self, [x])
 
     def _sigmoid(self, x):
-        # TODO: implement sigmoid function
-        pass
+        return 1.0 / (1.0 + np.exp(-x))
 
     def forward(self):
-        # TODO: implement
-        pass
+        self.value = self._sigmoid(self.inbound_nodes[0].value)
 
+    # derivative of sigmoid(x) is (1 - sigmoid(x)) * sigmoid(x)
     def backward(self):
-        # TODO: implement
         self.gradients = {n: np.zeros_like(n.value) for n in self.inbound_nodes}
+        for n in self.outbound_nodes:
+            grad = n.gradients[self]
+            self.gradients[self.inbound_nodes[0]] += (1 - self.value) * self.value * grad
 
 
 # NOTE: assume y is a vector with values 0-9
@@ -221,26 +228,36 @@ class CrossEntropyWithSoftmax(Node):
     def __init__(self, x, y):
         Node.__init__(self, [x, y])
 
-    def _predict(self):
-        probs = self._softmax(self.inbound_nodes[0].value)
-        return np.argmax(probs, axis=1)
-
-    def _accuracy(self):
-        preds = self._predict()
-        return np.mean(preds == self.inbound_nodes[1].value)
-
     def _softmax(self, x):
-        # TODO: implement softmax function
-        pass
+        exp_x = np.exp(x)
+        probs = exp_x / np.sum(exp_x, axis=1, keepdims=True)
+        return probs
+
+    # omit other functions ...
 
     def forward(self):
-        # TODO: implement
-        pass
-
+        probs = self._softmax(self.inbound_nodes[0].value)
+        y = self.inbound_nodes[1].value
+        self.cache[0] = probs
+        self.cache[1] = y
+        n = probs.shape[0]
+        logprobs = -np.log(probs[range(n), y])
+        self.value = np.sum(logprobs) / n
+        
+    # we know this is a loss so we can be a bit less generic here
+    # should have 0 output nodes
     def backward(self):
-        # TODO: implement
         assert len(self.outbound_nodes) == 0
         self.gradients = {n: np.zeros_like(n.value) for n in self.inbound_nodes}
+        # combined derivative of softmax and cross entropy
+        gprobs = np.copy(self.cache[0])
+        y = self.cache[1]
+        n = gprobs.shape[0]
+        gprobs[range(n), y] -= 1
+        gprobs /= n
+        # leave the gradient for the 2nd node all 0s, we don't care about the gradient
+        # for the labels
+        self.gradients[self.inbound_nodes[0]] = gprobs
 
 
 #
